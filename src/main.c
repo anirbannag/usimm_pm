@@ -25,8 +25,6 @@ long long int get_current_cycle()
 struct robstructure *ROB;
 
 FILE **tif;  /* The handles to the trace input files. */
-FILE *config_file;
-FILE *vi_file;
 
 int *prefixtable;
 // Moved the following to memory_controller.h so that they are visible
@@ -50,7 +48,6 @@ int main(int argc, char * argv[])
   int num_fetch=0;
   int num_done=0;
   int numch=0;
-  int writeqfull=0;
   int fnstart;
   int currMTapp;
   long long int maxtd;
@@ -66,18 +63,12 @@ int main(int argc, char * argv[])
   /* Initialization code. */
   printf("Initializing.\n");
 
-  if (argc < 3) {
-    printf("Need at least one input configuration file and one trace file as argument.  Quitting.\n");
+  if (argc < 2) {
+    printf("Need at least one trace file as argument.  Quitting.\n");
     return -3;
   }
 
-  config_file = fopen(argv[1], "r");
-  if (!config_file) {
-    printf("Missing system configuration file.  Quitting. \n");
-    return -4;
-  }
-
-  NUMCORES = argc-2;
+  NUMCORES = argc-1;
 
 
   ROB = (struct robstructure *)malloc(sizeof(struct robstructure)*NUMCORES);
@@ -92,7 +83,7 @@ int main(int argc, char * argv[])
   prefixtable = (int *)malloc(sizeof(int)*NUMCORES);
   currMTapp = -1;
   for (numc=0; numc < NUMCORES; numc++) {
-     tif[numc] = fopen(argv[numc+2], "r");
+     tif[numc] = fopen(argv[numc+1], "r");
      if (!tif[numc]) {
        printf("Missing input trace file %d.  Quitting. \n",numc);
        return -5;
@@ -109,21 +100,21 @@ int main(int argc, char * argv[])
      prefixtable[numc] = numc;
 
      /* Find the start of the filename.  It's after the last "/". */
-     for (fnstart = strlen(argv[numc+2]) ; fnstart >= 0; fnstart--) {
-       if (argv[numc+2][fnstart] == '/') {
+     for (fnstart = strlen(argv[numc+1]) ; fnstart >= 0; fnstart--) {
+       if (argv[numc+1][fnstart] == '/') {
          break;
        }
      }
      fnstart++;  /* fnstart is either the letter after the last / or the 0th letter. */
 
-     if ((strlen(argv[numc+2])-fnstart) > 2) {
-       if ((argv[numc+2][fnstart+0] == 'M') && (argv[numc+2][fnstart+1] == 'T')) {
-         if (argv[numc+2][fnstart+2] == '0') {
+     if ((strlen(argv[numc+1])-fnstart) > 2) {
+       if ((argv[numc+1][fnstart+0] == 'M') && (argv[numc+1][fnstart+1] == 'T')) {
+         if (argv[numc+1][fnstart+2] == '0') {
 	   currMTapp = numc;
 	 }
 	 else {
 	   if (currMTapp < 0) {
-	     printf("Poor set of input parameters.  Input file %s starts with \"MT\", but there is no preceding input file starting with \"MT0\".  Quitting.\n", argv[numc+2]);
+	     printf("Poor set of input parameters.  Input file %s starts with \"MT\", but there is no preceding input file starting with \"MT0\".  Quitting.\n", argv[numc+1]);
 	     return -6;
 	   }
 	   else 
@@ -131,7 +122,7 @@ int main(int argc, char * argv[])
 	 }
        }
      }
-     printf("Core %d: Input trace file %s : Addresses will have prefix %d\n", numc, argv[numc+2], prefixtable[numc]);
+     printf("Core %d: Input trace file %s : Addresses will have prefix %d\n", numc, argv[numc+1], prefixtable[numc]);
 
      committed[numc]=0;
      fetched[numc]=0;
@@ -142,66 +133,23 @@ int main(int argc, char * argv[])
      ROB[numc].tracedone=0;
   }
 
-  read_config_file(config_file);
+  read_config_vars();
 
-
-	/* Find the appropriate .vi file to read*/
-	if (NUM_CHANNELS == 1 && NUMCORES == 1) {
-  		vi_file = fopen("input/1Gb_x4.vi", "r"); 
-		chips_per_rank= 16;
-  		printf("Reading vi file: 1Gb_x4.vi\t\n%d Chips per Rank\n",chips_per_rank); 
-	} else if (NUM_CHANNELS == 1 && NUMCORES == 2) {
-  		vi_file = fopen("input/2Gb_x4.vi", "r");
-		chips_per_rank= 16;
-  		printf("Reading vi file: 2Gb_x4.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 1 && (NUMCORES > 2) && (NUMCORES <= 4)) {
-  		vi_file = fopen("input/4Gb_x4.vi", "r");
-		chips_per_rank= 16;
-  		printf("Reading vi file: 4Gb_x4.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 4 && NUMCORES == 1) {
-  		vi_file = fopen("input/1Gb_x16.vi", "r");
-		chips_per_rank= 4;
-  		printf("Reading vi file: 1Gb_x16.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 4 && NUMCORES == 2) {
-  		vi_file = fopen("input/1Gb_x8.vi", "r");
-		chips_per_rank= 8;
-  		printf("Reading vi file: 1Gb_x8.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 4 && (NUMCORES > 2) && (NUMCORES <= 4)) {
-  		vi_file = fopen("input/2Gb_x8.vi", "r");
-		chips_per_rank= 8;
-  		printf("Reading vi file: 2Gb_x8.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 4 && (NUMCORES > 4) && (NUMCORES <= 8)) {
-  		vi_file = fopen("input/4Gb_x8.vi", "r");
-		chips_per_rank= 8;
-  		printf("Reading vi file: 4Gb_x8.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else if (NUM_CHANNELS == 4 && (NUMCORES > 8) && (NUMCORES <= 16)) {
-  		vi_file = fopen("input/4Gb_x4.vi", "r");
-		chips_per_rank= 16;
-  		printf("Reading vi file: 4Gb_x4.vi\t\n%d Chips per Rank\n",chips_per_rank);
-	} else {
-		printf ("PANIC:: Channel - Core configuration not supported\n");
-		assert (-1);
-	}
-
-  	if (!vi_file) {
- 	  printf("Missing DRAM chip parameter file.  Quitting. \n");
-  	  return -5;
-  	}
-
-
-
-  assert((log_base2(NUM_CHANNELS) + log_base2(NUM_RANKS) + log_base2(NUM_BANKS) + log_base2(NUM_ROWS) + log_base2(NUM_COLUMNS) + log_base2(CACHE_LINE_SIZE)) == ADDRESS_BITS );
+  //assert((log_base2(NUM_CHANNELS) + log_base2(NUM_RANKS) + log_base2(NUM_BANKS) + log_base2(NUM_ROWS) + log_base2(NUM_COLUMNS) + log_base2(CACHE_LINE_SIZE)) == ADDRESS_BITS );
   /* Increase the address space and rows per bank depending on the number of input traces. */
-  ADDRESS_BITS = ADDRESS_BITS + log_base2(NUMCORES);
+  
   if (NUMCORES == 1) {
     pow_of_2_cores = 1;
   }
   else {
   pow_of_2_cores = 1 << ((int)log_base2(NUMCORES-1) + 1);
   }
-  NUM_ROWS = NUM_ROWS * pow_of_2_cores;
+  
+  for(int i=0; i<NUM_CHANNELS; i++) {
+	ADDRESS_BITS = ADDRESS_BITS + log_base2(NUMCORES);
+	NUM_ROWS[i] = NUM_ROWS[i] * pow_of_2_cores;
+  }
 
-  read_config_file(vi_file);
   print_params();
 
   for(int i=0; i<NUMCORES; i++)
@@ -218,219 +166,225 @@ int main(int argc, char * argv[])
   /* Must start by reading one line of each trace file. */
   for(numc=0; numc<NUMCORES; numc++)
   {
-	      if (fgets(newstr,MAXTRACELINESIZE,tif[numc])) {
-	        if (sscanf(newstr,"%d %c",&nonmemops[numc],&opertype[numc]) > 0) {
-		  if (opertype[numc] == 'R') {
-		    if (sscanf(newstr,"%d %c %Lx %Lx",&nonmemops[numc],&opertype[numc],&addr[numc],&instrpc[numc]) < 1) {
-		      printf("Panic.  Poor trace format.\n");
-		      return -4;
-		    }
-		  }
-		  else {
-		    if (opertype[numc] == 'W') {
-		      if (sscanf(newstr,"%d %c %Lx",&nonmemops[numc],&opertype[numc],&addr[numc]) < 1) {
-		        printf("Panic.  Poor trace format.\n");
-		        return -3;
-		      }
-		    }
-		    else {
-		      printf("Panic.  Poor trace format.\n");
-		      return -2;
-		    }
-		  }
+	if (fgets(newstr,MAXTRACELINESIZE,tif[numc])) {
+		if (sscanf(newstr,"%d %c",&nonmemops[numc],&opertype[numc]) > 0) {
+			if (opertype[numc] == 'R') {
+				if (sscanf(newstr,"%d %c %Lx %Lx",&nonmemops[numc],&opertype[numc],&addr[numc],&instrpc[numc]) < 1) {
+					printf("Panic.  Poor trace format.\n");
+					return -4;
+				}
+			}
+			else {
+				if (opertype[numc] == 'W') {
+					if (sscanf(newstr,"%d %c %Lx",&nonmemops[numc],&opertype[numc],&addr[numc]) < 1) {
+						printf("Panic.  Poor trace format.\n");
+						return -3;
+					}
+				}
+				else {
+					printf("Panic.  Poor trace format.\n");
+					return -2;
+				}
+			}
 		}
 		else {
-		  printf("Panic.  Poor trace format.\n");
-		  return -1;
+			printf("Panic.  Poor trace format.\n");
+			return -1;
 		}
-	      }
-	      else {
-	        if (ROB[numc].inflight == 0) {
-	          num_done++;
-	          if (!time_done[numc]) time_done[numc] = 1;
-	        }
-	        ROB[numc].tracedone=1;
-	      }
+	}
+	else {
+		if (ROB[numc].inflight == 0) {
+			num_done++;
+	        if (!time_done[numc]) time_done[numc] = 1;
+	    }
+	    ROB[numc].tracedone=1;
+	}
   }
 
 
   printf("Starting simulation.\n");
   while (!expt_done) {
 
-    /* For each core, retire instructions if they have finished. */
-    for (numc = 0; numc < NUMCORES; numc++) {
-      num_ret = 0;
-      while ((num_ret < MAX_RETIRE) && ROB[numc].inflight) {
-        /* Keep retiring until retire width is consumed or ROB is empty. */
-        if (ROB[numc].comptime[ROB[numc].head] < CYCLE_VAL) {  
-	  /* Keep retiring instructions if they are done. */
-	  ROB[numc].head = (ROB[numc].head + 1) % ROBSIZE;
-	  ROB[numc].inflight--;
-	  committed[numc]++;
-	  num_ret++;
-        }
-	else  /* Instruction not complete.  Stop retirement for this core. */
-	  break;
-      }  /* End of while loop that is retiring instruction for one core. */
-    }  /* End of for loop that is retiring instructions for all cores. */
-
-
-    if(CYCLE_VAL%PROCESSOR_CLK_MULTIPLIER == 0)
-    { 
-      /* Execute function to find ready instructions. */
-      update_memory();
-
-      /* Execute user-provided function to select ready instructions for issue. */
-      /* Based on this selection, update DRAM data structures and set 
-	 instruction completion times. */
-      for(int c=0; c < NUM_CHANNELS; c++)
-      {
-	schedule(c);
-	gather_stats(c);	
-      }
-    }
-
-    /* For each core, bring in new instructions from the trace file to
-       fill up the ROB. */
-    num_done = 0;
-    writeqfull =0;
-    for(int c=0; c<NUM_CHANNELS; c++){
-	    if(write_queue_length[c] == WQ_CAPACITY)
-	    {
-		    writeqfull = 1;
-		    break;
-	    }
-    }
-
-    for (numc = 0; numc < NUMCORES; numc++) {
-      if (!ROB[numc].tracedone) { /* Try to fetch if EOF has not been encountered. */
-        num_fetch = 0;
-        while ((num_fetch < MAX_FETCH) && (ROB[numc].inflight != ROBSIZE) && (!writeqfull)) {
-          /* Keep fetching until fetch width or ROB capacity or WriteQ are fully consumed. */
-	  /* Read the corresponding trace file and populate the tail of the ROB data structure. */
-	  /* If Memop, then populate read/write queue.  Set up completion time. */
-
-	  if (nonmemops[numc]) {  /* Have some non-memory-ops to consume. */
-	    ROB[numc].optype[ROB[numc].tail] = 'N';
-	    ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+PIPELINEDEPTH;
-	    nonmemops[numc]--;
-	    ROB[numc].tail = (ROB[numc].tail +1) % ROBSIZE;
-	    ROB[numc].inflight++;
-	    fetched[numc]++;
-	    num_fetch++;
-	  }
-	  else { /* Done consuming non-memory-ops.  Must now consume the memory rd or wr. */
-	      if (opertype[numc] == 'R') {
-		  addr[numc] = addr[numc] + (long long int)((long long int)prefixtable[numc] << (ADDRESS_BITS - log_base2(NUMCORES)));    // Add MSB bits so each trace accesses a different address space.
-	          ROB[numc].mem_address[ROB[numc].tail] = addr[numc];
-	          ROB[numc].optype[ROB[numc].tail] = opertype[numc];
-	          ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL + BIGNUM;
-	          ROB[numc].instrpc[ROB[numc].tail] = instrpc[numc];
-		
-		  // Check to see if the read is for buffered data in write queue - 
-		  // return constant latency if match in WQ
-		  // add in read queue otherwise
-		  int lat = read_matches_write_or_read_queue(addr[numc]);
-		  if(lat) {
-			ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+lat+PIPELINEDEPTH;
-		  }
-		  else {
-			insert_read(addr[numc], CYCLE_VAL, numc, ROB[numc].tail, instrpc[numc]);
-		  }
-	      }
-	      else {  /* This must be a 'W'.  We are confirming that while reading the trace. */
-	        if (opertype[numc] == 'W') {
-		      addr[numc] = addr[numc] + (long long int)((long long int)prefixtable[numc] << (ADDRESS_BITS - log_base2(NUMCORES)));    // Add MSB bits so each trace accesses a different address space.
-		      ROB[numc].mem_address[ROB[numc].tail] = addr[numc];
-		      ROB[numc].optype[ROB[numc].tail] = opertype[numc];
-		      ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+PIPELINEDEPTH;
-		      /* Also, add this to the write queue. */
-
-		      if(!write_exists_in_write_queue(addr[numc]))
-			insert_write(addr[numc], CYCLE_VAL, numc, ROB[numc].tail);
-
-		      for(int c=0; c<NUM_CHANNELS; c++){
-			if(write_queue_length[c] == WQ_CAPACITY)
-			{
-			  writeqfull = 1;
-			  break;
-			}
-		      }
-		}
-		else {
-		  printf("Panic.  Poor trace format. \n");
-		  return -1;
-		}
-	      }
-	      ROB[numc].tail = (ROB[numc].tail +1) % ROBSIZE;
-	      ROB[numc].inflight++;
-	      fetched[numc]++;
-	      num_fetch++;
-
-	      /* Done consuming one line of the trace file.  Read in the next. */
-	      if (fgets(newstr,MAXTRACELINESIZE,tif[numc])) {
-	        if (sscanf(newstr,"%d %c",&nonmemops[numc],&opertype[numc]) > 0) {
-		  if (opertype[numc] == 'R') {
-		    if (sscanf(newstr,"%d %c %Lx %Lx",&nonmemops[numc],&opertype[numc],&addr[numc],&instrpc[numc]) < 1) {
-		      printf("Panic.  Poor trace format.\n");
-		      return -4;
-		    }
-		  }
-		  else {
-		    if (opertype[numc] == 'W') {
-		      if (sscanf(newstr,"%d %c %Lx",&nonmemops[numc],&opertype[numc],&addr[numc]) < 1) {
-		        printf("Panic.  Poor trace format.\n");
-		        return -3;
-		      }
-		    }
-		    else {
-		      printf("Panic.  Poor trace format.\n");
-		      return -2;
-		    }
-		  }
-		}
-		else {
-		  printf("Panic.  Poor trace format.\n");
-		  return -1;
-		}
-	      }
-	      else {
-	        if (ROB[numc].inflight == 0) {
-	          num_done++;
-	          if (!time_done[numc]) time_done[numc] = CYCLE_VAL;
-	        }
-	        ROB[numc].tracedone=1;
-	        break;  /* Break out of the while loop fetching instructions. */
-	      }
-	      
-	  }  /* Done consuming the next rd or wr. */
-
-	} /* One iteration of the fetch while loop done. */
-      } /* Closing brace for if(trace not done). */
-      else { /* Input trace is done.  Check to see if all inflight instrs have finished. */
-        if (ROB[numc].inflight == 0) {
-	  num_done++;
-	  if (!time_done[numc]) time_done[numc] = CYCLE_VAL;
+	if(CYCLE_VAL%PROCESSOR_CLK_MULTIPLIER == 0) {
+		/* For each core, retire instructions if they have finished. */
+		for (numc = 0; numc < NUMCORES; numc++) {
+			num_ret = 0;
+			while ((num_ret < MAX_RETIRE) && ROB[numc].inflight) {
+				/* Keep retiring until retire width is consumed or ROB is empty. */
+				if (ROB[numc].comptime[ROB[numc].head] < CYCLE_VAL) {  
+					/* Keep retiring instructions if they are done. */
+					ROB[numc].head = (ROB[numc].head + 1) % ROBSIZE;
+					ROB[numc].inflight--;
+					committed[numc]++;
+					num_ret++;
+				}
+				else  /* Instruction not complete.  Stop retirement for this core. */
+					break;
+			}  /* End of while loop that is retiring instruction for one core. */
+		}  /* End of for loop that is retiring instructions for all cores. */
 	}
-      }
-    } /* End of for loop that goes through all cores. */
+
+	for(int channel=0; channel < NUM_CHANNELS; channel++) {
+		if(CYCLE_VAL%MEMORY_CLK_MULTIPLIER[channel] == 0) { 
+			/* Execute function to find ready instructions. */
+			update_memory(channel);
+
+		}
+	}
+	
+	if(CYCLE_VAL%SERDES_CLK_MULTIPLIER == 0) {
+		for(int channel=0; channel < NUM_HMCS; channel++) {
+			transfer_response_to_PROCESSOR(channel);
+		}
+	}
+	
+	/* Execute user-provided function to select ready instructions for issue. */
+	/* Based on this selection, update DRAM data structures and set 
+	   instruction completion times. */
+	for(int channel=0; channel < NUM_CHANNELS; channel++) {
+		if(CYCLE_VAL%MEMORY_CLK_MULTIPLIER[channel] == 0) { 
+			for(int vault=0; vault < NUM_VAULTS[channel]; vault++) {
+				schedule(channel, vault);
+				gather_stats(channel, vault);	
+			}
+		}
+	}
+	
+	if(CYCLE_VAL%SERDES_CLK_MULTIPLIER == 0) {
+		for(int channel=0; channel < NUM_HMCS; channel++) {
+			transfer_request_to_HMCs(channel);
+		}
+	}
+
+	if(CYCLE_VAL%PROCESSOR_CLK_MULTIPLIER == 0) {
+		/* For each core, bring in new instructions from the trace file to
+		   fill up the ROB. */
+		num_done = 0;
+		
+
+		for (numc = 0; numc < NUMCORES; numc++) {
+			if (!ROB[numc].tracedone) { /* Try to fetch if EOF has not been encountered. */
+				num_fetch = 0;
+				while ((num_fetch < MAX_FETCH) && (ROB[numc].inflight != ROBSIZE) && (!is_writeq_full(numc))) {
+					/* Keep fetching until fetch width or ROB capacity or WriteQ are fully consumed. 
+					   Read the corresponding trace file and populate the tail of the ROB data structure. 
+					   If Memop, then populate read/write queue.  Set up completion time. */
+
+					if (nonmemops[numc]) {  /* Have some non-memory-ops to consume. */
+						ROB[numc].optype[ROB[numc].tail] = 'N';
+						ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+PIPELINEDEPTH;
+						nonmemops[numc]--;
+						ROB[numc].tail = (ROB[numc].tail +1) % ROBSIZE;
+						ROB[numc].inflight++;
+						fetched[numc]++;
+						num_fetch++;
+					}
+					else { /* Done consuming non-memory-ops.  Must now consume the memory rd or wr. */
+						if (opertype[numc] == 'R') {
+							addr[numc] = addr[numc] + (long long int)((long long int)prefixtable[numc] << (ADDRESS_BITS - log_base2(NUMCORES)));    // Add MSB bits so each trace accesses a different address space.
+							ROB[numc].mem_address[ROB[numc].tail] = addr[numc];
+							ROB[numc].optype[ROB[numc].tail] = opertype[numc];
+							ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL + BIGNUM;
+							ROB[numc].instrpc[ROB[numc].tail] = instrpc[numc];
+			
+							// Check to see if the read is for buffered data in write queue - 
+							// return constant latency if match in WQ
+							// add in read queue otherwise
+							int lat = read_matches_write_or_read_queue(addr[numc], numc);
+							if(lat) {
+								ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+lat+PIPELINEDEPTH;
+							}
+							else {
+								insert_read(addr[numc], CYCLE_VAL, numc, ROB[numc].tail, instrpc[numc]);
+							}
+						}
+						else {  /* This must be a 'W'.  We are confirming that while reading the trace. */
+							if (opertype[numc] == 'W') {
+								addr[numc] = addr[numc] + (long long int)((long long int)prefixtable[numc] << (ADDRESS_BITS - log_base2(NUMCORES)));    // Add MSB bits so each trace accesses a different address space.
+								ROB[numc].mem_address[ROB[numc].tail] = addr[numc];
+								ROB[numc].optype[ROB[numc].tail] = opertype[numc];
+								ROB[numc].comptime[ROB[numc].tail] = CYCLE_VAL+PIPELINEDEPTH;
+								/* Also, add this to the write queue. */
+
+								if(!write_exists_in_write_queue(addr[numc], numc))
+									insert_write(addr[numc], CYCLE_VAL, numc, ROB[numc].tail);
+							}
+							else {
+								printf("Panic.  Poor trace format. \n");
+								return -1;
+							}
+						}
+						ROB[numc].tail = (ROB[numc].tail +1) % ROBSIZE;
+						ROB[numc].inflight++;
+						fetched[numc]++;
+						num_fetch++;
+
+						/* Done consuming one line of the trace file.  Read in the next. */
+						if (fgets(newstr,MAXTRACELINESIZE,tif[numc])) {
+							if (sscanf(newstr,"%d %c",&nonmemops[numc],&opertype[numc]) > 0) {
+								if (opertype[numc] == 'R') {
+									if (sscanf(newstr,"%d %c %Lx %Lx",&nonmemops[numc],&opertype[numc],&addr[numc],&instrpc[numc]) < 1) {
+										printf("Panic.  Poor trace format.\n");
+										return -4;
+									}
+								}
+								else {
+									if (opertype[numc] == 'W') {
+										if (sscanf(newstr,"%d %c %Lx",&nonmemops[numc],&opertype[numc],&addr[numc]) < 1) {
+											printf("Panic.  Poor trace format.\n");
+											return -3;
+										}
+									}
+									else {
+										printf("Panic.  Poor trace format.\n");
+										return -2;
+									}
+								}
+							}
+							else {
+								printf("Panic.  Poor trace format.\n");
+								return -1;
+							}
+						}
+						else {
+							if (ROB[numc].inflight == 0) {
+								num_done++;
+								if (!time_done[numc]) time_done[numc] = CYCLE_VAL;
+							}
+							ROB[numc].tracedone=1;
+							break;  /* Break out of the while loop fetching instructions. */
+						}
+			  
+					}  /* Done consuming the next rd or wr. */
+
+				} /* One iteration of the fetch while loop done. */
+			} /* Closing brace for if(trace not done). */
+			else { /* Input trace is done.  Check to see if all inflight instrs have finished. */
+				if (ROB[numc].inflight == 0) {
+					num_done++;
+					if (!time_done[numc]) time_done[numc] = CYCLE_VAL;
+				}
+			}
+		} /* End of for loop that goes through all cores. */
 
 
-    if (num_done == NUMCORES) {
-      /* Traces have been consumed and in-flight windows are empty.  Must confirm that write queues have been drained. */
-      for (numch=0;numch<NUM_CHANNELS;numch++) {
-        if (write_queue_length[numch]) break;
-      }
-      if (numch == NUM_CHANNELS) expt_done=1;  /* All traces have been consumed and the write queues are drained. */
-    }
+		if (num_done == NUMCORES) {
+			/* Traces have been consumed and in-flight windows are empty.  Must confirm that write queues have been drained. */
+			for (numch=0;numch<NUM_CHANNELS;numch++) {
+				if (write_queue_length[numch]) break;
+			}
+			if (numch == NUM_CHANNELS) expt_done=1;  /* All traces have been consumed and the write queues are drained. */
+		}
+    
+	}
 
-    /* Printing details for testing.  Remove later. */
-    //printf("Cycle: %lld\n", CYCLE_VAL);
-    //for (numc=0; numc < NUMCORES; numc++) {
-     // printf("C%d: Inf %d : Hd %d : Tl %d : Comp %lld : type %c : addr %x : TD %d\n", numc, ROB[numc].inflight, ROB[numc].head, ROB[numc].tail, ROB[numc].comptime[ROB[numc].head], ROB[numc].optype[ROB[numc].head], ROB[numc].mem_address[ROB[numc].head], ROB[numc].tracedone);
-    //}
+    /* Printing details for testing. Remove later. 
+		printf("Cycle: %lld\n", CYCLE_VAL);
+		for (numc=0; numc < NUMCORES; numc++) {
+			printf("C%d: Inf %d : Hd %d : Tl %d : Comp %lld : type %c : addr %x : TD %d\n", numc, ROB[numc].inflight, ROB[numc].head, ROB[numc].tail, ROB[numc].comptime[ROB[numc].head], ROB[numc].optype[ROB[numc].head], ROB[numc].mem_address[ROB[numc].head], ROB[numc].tracedone);
+		}*/
 
-    CYCLE_VAL++;  /* Advance the simulation cycle. */
+	CYCLE_VAL++;  /* Advance the simulation cycle. */
   }
 
 
@@ -474,8 +428,9 @@ int main(int argc, char * argv[])
 
   /*Print Cycle Stats*/
   for(int c=0; c<NUM_CHANNELS; c++)
-	  for(int r=0; r<NUM_RANKS ;r++)
-		  calculate_power(c,r,0,chips_per_rank);
+	 for(int v=0; v<NUM_VAULTS[c]; v++)
+		for(int r=0; r<NUM_RANKS[c] ;r++)
+		  calculate_power(c,v,r,0,chips_per_rank);
 
 	printf ("\n#-------------------------------------- Power Stats ----------------------------------------------\n");
 	printf ("Note:  1. termRoth/termWoth is the power dissipated in the ODT resistors when Read/Writes terminate \n");
@@ -484,10 +439,11 @@ int main(int argc, char * argv[])
 
 
   /*Print Power Stats*/
-	float total_system_power =0;
+  float total_system_power =0;
   for(int c=0; c<NUM_CHANNELS; c++)
-	  for(int r=0; r<NUM_RANKS ;r++)
-		  total_system_power += calculate_power(c,r,1,chips_per_rank);
+	for(int v=0; v<NUM_VAULTS[c]; v++)
+	  for(int r=0; r<NUM_RANKS[c] ;r++)
+		  total_system_power += calculate_power(c,v,r,1,chips_per_rank);
 
 		printf ("\n#-------------------------------------------------------------------------------------------------\n");
 	if (NUM_CHANNELS == 4) {  /* Assuming that this is 4channel.cfg  */
@@ -507,10 +463,3 @@ int main(int argc, char * argv[])
 
   return 0;
 }
-
-
-
-
-
-
-
