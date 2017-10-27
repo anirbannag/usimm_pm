@@ -5,7 +5,7 @@
 #define MAX_NUM_VAULTS 16
 #define MAX_NUM_RANKS 16
 #define MAX_NUM_BANKS 8
-#define MAX_NUM_HMCS 4
+#define MAX_NUM_HMCS 2
 #define MAX_NUM_CORES 4
 
 // Moved here from main.c 

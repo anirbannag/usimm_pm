@@ -47,9 +47,9 @@ int main(int argc, char * argv[])
   int num_ret=0;
   int num_fetch=0;
   int num_done=0;
-  int numch=0;
   int fnstart;
   int currMTapp;
+  int writeqfull;
   long long int maxtd;
   int maxcr;
   int pow_of_2_cores;
@@ -64,7 +64,7 @@ int main(int argc, char * argv[])
   printf("Initializing.\n");
 
   if (argc < 2) {
-    printf("Need at least one trace file as argument.  Quitting.\n");
+	printf("Need at least one trace file as argument.  Quitting.\n");
     return -3;
   }
 
@@ -90,37 +90,37 @@ int main(int argc, char * argv[])
      }
 
      /* The addresses in each trace are given a prefix that equals
-        their core ID.  If the input trace starts with "MT", it is
-	assumed to be part of a multi-threaded app.  The addresses
-	from this trace file are given a prefix that equals that of
-	the last seen input trace file that starts with "MT0".  For
-	example, the following is an acceptable set of inputs for
-	multi-threaded apps CG (4 threads) and LU (2 threads):
-	usimm 1channel.cfg MT0CG MT1CG MT2CG MT3CG MT0LU MT1LU */
+		their core ID.  If the input trace starts with "MT", it is
+		assumed to be part of a multi-threaded app.  The addresses
+		from this trace file are given a prefix that equals that of
+		the last seen input trace file that starts with "MT0".  For
+		example, the following is an acceptable set of inputs for
+		multi-threaded apps CG (4 threads) and LU (2 threads):
+		usimm 1channel.cfg MT0CG MT1CG MT2CG MT3CG MT0LU MT1LU */
      prefixtable[numc] = numc;
 
      /* Find the start of the filename.  It's after the last "/". */
      for (fnstart = strlen(argv[numc+1]) ; fnstart >= 0; fnstart--) {
-       if (argv[numc+1][fnstart] == '/') {
-         break;
-       }
+		if (argv[numc+1][fnstart] == '/') {
+			break;
+		}
      }
      fnstart++;  /* fnstart is either the letter after the last / or the 0th letter. */
 
      if ((strlen(argv[numc+1])-fnstart) > 2) {
-       if ((argv[numc+1][fnstart+0] == 'M') && (argv[numc+1][fnstart+1] == 'T')) {
-         if (argv[numc+1][fnstart+2] == '0') {
-	   currMTapp = numc;
-	 }
-	 else {
-	   if (currMTapp < 0) {
-	     printf("Poor set of input parameters.  Input file %s starts with \"MT\", but there is no preceding input file starting with \"MT0\".  Quitting.\n", argv[numc+1]);
-	     return -6;
-	   }
-	   else 
-	     prefixtable[numc] = currMTapp;
-	 }
-       }
+		if ((argv[numc+1][fnstart+0] == 'M') && (argv[numc+1][fnstart+1] == 'T')) {
+			if (argv[numc+1][fnstart+2] == '0') {
+				currMTapp = numc;
+			}
+			else {
+				if (currMTapp < 0) {
+					printf("Poor set of input parameters.  Input file %s starts with \"MT\", but there is no preceding input file starting with \"MT0\".  Quitting.\n", argv[numc+1]);
+					return -6;
+				}
+				else 
+					prefixtable[numc] = currMTapp;
+			}
+		}
      }
      printf("Core %d: Input trace file %s : Addresses will have prefix %d\n", numc, argv[numc+1], prefixtable[numc]);
 
@@ -142,11 +142,12 @@ int main(int argc, char * argv[])
     pow_of_2_cores = 1;
   }
   else {
-  pow_of_2_cores = 1 << ((int)log_base2(NUMCORES-1) + 1);
+	pow_of_2_cores = 1 << ((int)log_base2(NUMCORES-1) + 1);
   }
   
+  ADDRESS_BITS = ADDRESS_BITS + log_base2(NUMCORES);
+  
   for(int i=0; i<NUM_CHANNELS; i++) {
-	ADDRESS_BITS = ADDRESS_BITS + log_base2(NUMCORES);
 	NUM_ROWS[i] = NUM_ROWS[i] * pow_of_2_cores;
   }
 
@@ -200,7 +201,6 @@ int main(int argc, char * argv[])
 	    ROB[numc].tracedone=1;
 	}
   }
-
 
   printf("Starting simulation.\n");
   while (!expt_done) {
@@ -265,7 +265,8 @@ int main(int argc, char * argv[])
 		for (numc = 0; numc < NUMCORES; numc++) {
 			if (!ROB[numc].tracedone) { /* Try to fetch if EOF has not been encountered. */
 				num_fetch = 0;
-				while ((num_fetch < MAX_FETCH) && (ROB[numc].inflight != ROBSIZE) && (!is_writeq_full(numc))) {
+				writeqfull = is_writeq_full(numc);
+				while ((num_fetch < MAX_FETCH) && (ROB[numc].inflight != ROBSIZE) && (!writeqfull)) {
 					/* Keep fetching until fetch width or ROB capacity or WriteQ are fully consumed. 
 					   Read the corresponding trace file and populate the tail of the ROB data structure. 
 					   If Memop, then populate read/write queue.  Set up completion time. */
@@ -368,12 +369,9 @@ int main(int argc, char * argv[])
 		} /* End of for loop that goes through all cores. */
 
 
-		if (num_done == NUMCORES) {
+		if (num_done == NUMCORES && are_all_writes_completed()) {
 			/* Traces have been consumed and in-flight windows are empty.  Must confirm that write queues have been drained. */
-			for (numch=0;numch<NUM_CHANNELS;numch++) {
-				if (write_queue_length[numch]) break;
-			}
-			if (numch == NUM_CHANNELS) expt_done=1;  /* All traces have been consumed and the write queues are drained. */
+			expt_done=1;  /* All traces have been consumed and the write queues are drained. */
 		}
     
 	}

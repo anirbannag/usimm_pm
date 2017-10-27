@@ -34,7 +34,7 @@ int is_writeq_full(int thread_id)
 		}
 		else {
 			for(int vault=0; vault<NUM_VAULTS[channel]; vault++) {				
-				if(channel >= NUM_HMCS && write_queue_length[channel][vault] == WQ_CAPACITY[channel])
+				if(write_queue_length[channel][vault] == WQ_CAPACITY[channel])
 					return 1;
 			}
 		}
@@ -226,23 +226,22 @@ dram_address_t * calc_dram_addr(long long int physical_address)
 {
 
 
-	long long int input_a, temp_b, temp_a, temp_hmc;
+	long long int input_a, temp_b, temp_a;
 	
 	//right now, first 64GB reserved for HMC, next 64GB for DIMMs
-	temp_hmc = physical_address;
 	int channel_num = 0;
 	int is_dimm_address = 0;
 	if(NUM_HMCS != 0) {
-		temp_b = physical_address;
-		temp_hmc = physical_address >> 36;
-		temp_a = temp_hmc << 36;
-		is_dimm_address = temp_a ^ temp_b;
+		is_dimm_address = physical_address >> 36;
 		if(!is_dimm_address)
 			channel_num = 0;
 		else if(NUM_CHANNELS != NUM_HMCS)
 			channel_num = NUM_HMCS; 
 	}
-	
+	else {
+		is_dimm_address = 1;
+		channel_num = 0;
+	}
 	
 	int channelBitWidth = (is_dimm_address)?log_base2(NUM_DIMMS):log_base2(NUM_HMCS);
 	int vaultBitWidth = log_base2(NUM_VAULTS[channel_num]);
@@ -298,7 +297,7 @@ dram_address_t * calc_dram_addr(long long int physical_address)
 		temp_a  = input_a << rowBitWidth;
 		this_a->row = temp_a ^ temp_b;			// strip out the row number
 	}
-	else if(is_dimm_address && ADDRESS_MAPPING == 1)
+	else if(is_dimm_address && ADDRESS_MAPPING == 0)
 	{
 		this_a->vault = 0;
 			
@@ -331,7 +330,7 @@ dram_address_t * calc_dram_addr(long long int physical_address)
 		temp_a  = input_a << rowBitWidth;
 		this_a->row = temp_a ^ temp_b;		// strip out the row number
 	}
-	else if(is_dimm_address && ADDRESS_MAPPING == 0)
+	else if(is_dimm_address && ADDRESS_MAPPING == 1)
 	{
 		this_a->vault = 0;
 
@@ -629,9 +628,14 @@ request_t * insert_read(long long int physical_address, long long int arrival_ti
 
 	request_t * new_node = init_new_node(physical_address, arrival_time, this_op, thread_id, instruction_id, instruction_pc);
 
-	LL_APPEND(read_queue_per_core_head[thread_id][channel], new_node);
-
-	read_queue_length_for_core[thread_id][channel]++;
+	if(channel < NUM_HMCS) {
+		LL_APPEND(read_queue_per_core_head[thread_id][channel], new_node);
+		read_queue_length_for_core[thread_id][channel]++;
+	}
+	else {
+		LL_APPEND(read_queue_head[channel][vault], new_node);
+		read_queue_length[channel][vault]++;
+	}
 
 	//UT_MEM_DEBUG("\nCyc: %lld New READ:%lld Core:%d Chan:%d Rank:%d Bank:%d Row:%lld RD_Q_Length:%lld\n", CYCLE_VAL, new_node->id, new_node->thread_id, new_node->dram_addr.channel,  new_node->dram_addr.rank,  new_node->dram_addr.bank,  new_node->dram_addr.row, read_queue_length[channel]);
 	
@@ -652,9 +656,14 @@ request_t * insert_write(long long int physical_address, long long int arrival_t
 
 	request_t * new_node = init_new_node(physical_address, arrival_time, this_op, thread_id, instruction_id, 0);
 
-	LL_APPEND(write_queue_per_core_head[thread_id][channel], new_node);
-
-	write_queue_length_for_core[thread_id][channel]++;
+	if(channel < NUM_HMCS) {
+		LL_APPEND(write_queue_per_core_head[thread_id][channel], new_node);
+		write_queue_length_for_core[thread_id][channel]++;
+	}
+	else {
+		LL_APPEND(write_queue_head[channel][vault], new_node);
+		write_queue_length[channel][vault]++;
+	}
 
 	//UT_MEM_DEBUG("\nCyc: %lld New WRITE:%lld Core:%d Chan:%d Rank:%d Bank:%d Row:%lld WR_Q_Length:%lld\n", CYCLE_VAL, new_node->id, new_node->thread_id, new_node->dram_addr.channel,  new_node->dram_addr.rank,  new_node->dram_addr.bank,  new_node->dram_addr.row, write_queue_length[channel]);
 
@@ -1058,14 +1067,14 @@ int issue_request_command(request_t * request)
 			if(channel >= NUM_HMCS)
 				ROB[request->thread_id].comptime[request->instruction_id] = request->completion_time+PIPELINEDEPTH;
 
-			stats_reads_completed[channel][vault] ++;
+			stats_reads_completed[channel][vault]++;
 			stats_average_read_latency[channel][vault] = ((stats_reads_completed[channel][vault]-1)*stats_average_read_latency[channel][vault] + request->latency)/stats_reads_completed[channel][vault];
 			stats_average_read_queue_latency[channel][vault] = ((stats_reads_completed[channel][vault]-1)*stats_average_read_queue_latency[channel][vault] + (request->dispatch_time - request->arrival_time))/stats_reads_completed[channel][vault];
 			//UT_MEM_DEBUG("Req:%lld finishes at Cycle: %lld\n", request->id, request->completion_time);
 
 			//printf("Cycle: %10lld, Reads  Completed = %5lld, this_latency= %5lld, latency = %f\n", CYCLE_VAL, stats_reads_completed[channel][vault], request->latency, stats_average_read_latency[channel][vault]);	
 
-			stats_num_read[channel][vault][rank][bank] ++;
+			stats_num_read[channel][vault][rank][bank]++;
 
 			for(int i=0; i<NUM_RANKS[channel] ;i++)
 			{
@@ -1229,6 +1238,12 @@ int are_all_writes_completed()
 {
 	for(int channel=0; channel<NUM_CHANNELS; channel++)
 	{
+		if(channel<NUM_HMCS) {
+			for(int core=0; core<NUMCORES; core++) {
+				if(write_queue_length_for_core[core][channel])
+					return 0;
+			}
+		}
 		for(int vault=0; vault<NUM_VAULTS[channel]; vault++)
 		{
 				if(write_queue_length[channel][vault])
